@@ -1,0 +1,887 @@
+/interface ethernet
+set [ find default-name=ether1 ] l2mtu=1500
+set [ find default-name=ether2 ] l2mtu=1500
+set [ find default-name=ether3 ] l2mtu=1500
+/interface ethernet switch
+set 0 mirror-source=ether1 mirror-target=ether2
+/interface lte apn
+set [ find default=yes ] ip-type=ipv4 use-network-apn=no
+/interface wireless security-profiles
+set [ find default=yes ] supplicant-identity=MikroTik
+/ip hotspot profile
+set [ find default=yes ] html-directory=hotspot
+/ip pool
+add name=dhcp_pool0 ranges=172.16.0.1-172.16.0.253
+add name=dhcp_pool1 ranges=10.0.50.2-10.0.50.14
+add name=dhcp_pool2 ranges=10.0.50.2-10.0.50.14
+add name=dhcp_pool3 ranges=10.0.50.2-10.0.50.14
+/ip dhcp-server
+add address-pool=dhcp_pool0 interface=ether3 lease-time=1d name=dhcp1
+/port
+set 0 name=serial0
+/queue type
+add kind=pcq name=ping_pkts_i_64K pcq-classifier=dst-address,dst-port \
+    pcq-dst-address6-mask=64 pcq-rate=64k pcq-src-address6-mask=64
+add kind=pcq name=ping_pkts_o_64K pcq-classifier=src-address,src-port \
+    pcq-dst-address6-mask=64 pcq-rate=64k pcq-src-address6-mask=64
+add fq-codel-limit=1000 fq-codel-quantum=300 fq-codel-target=12ms kind=\
+    fq-codel name=fq-codel_short
+add kind=fq-codel name=fq_codel
+add cake-flowmode=dual-srchost cake-nat=yes kind=cake name=cake-WAN-tx
+add cake-diffserv=besteffort cake-flowmode=dual-dsthost cake-nat=yes kind=\
+    cake name=cake-WAN-rx
+add cake-diffserv=besteffort cake-flowmode=hosts cake-rtt=5ms kind=cake name=\
+    cake-icmp
+add kind=pcq name=DL pcq-classifier=dst-address,dst-port pcq-rate=50M
+add kind=pcq name=UL pcq-classifier=src-address,src-port pcq-rate=20M
+/queue simple
+add dst=10.0.50.0/28 max-limit=800M/800M name="LOCAL 1" target=\
+    10.0.50.0/28,172.16.0.0/24 total-queue=default
+add dst=10.0.50.0/28 max-limit=800M/800M name="LOCAL 2" target=\
+    10.0.50.0/28,172.16.0.0/24 total-queue=default
+add bucket-size=0.001/0.001 max-limit=41M/112M name="speed stabilizer" queue=\
+    cake-WAN-rx/cake-WAN-tx target=ether3 total-queue=fq_codel
+add max-limit=20M/50M name=equal parent="speed stabilizer" queue=UL/DL \
+    target=172.16.0.0/24 total-queue=fq_codel
+/queue tree
+add bucket-size=0.001 name=ping_pkts_i packet-mark=ping_pkts_i parent=global \
+    queue=ping_pkts_i_64K
+add bucket-size=0.001 name=ping_pkts_o packet-mark=ping_pkts_o parent=global \
+    queue=ping_pkts_o_64K
+/routing table
+add fib name=raptor_route
+add fib name=dns_route
+add disabled=no fib name=ping-route
+/user group
+set write policy="local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,pa\
+    ssword,web,sniff,sensitive,api,romon,rest-api"
+/ip neighbor discovery-settings
+set discover-interface-list=!dynamic
+/ipv6 settings
+set disable-ipv6=yes max-neighbor-entries=8192
+/interface ovpn-server server
+set auth=sha1,md5
+/ip address
+add address=172.16.0.254/24 interface=ether3 network=172.16.0.0
+add address=10.0.50.1/28 interface=ether2 network=10.0.50.0
+add address=192.168.18.3/24 interface=ether1 network=192.168.18.0
+/ip dhcp-server lease
+add address=172.16.0.245 client-id=1:90:f:c:9b:16:d5 mac-address=\
+    90:0F:0C:9B:16:D5 server=dhcp1
+add address=172.16.0.4 mac-address=10:5A:17:15:D7:72 server=dhcp1
+add address=172.16.0.10 mac-address=D8:1F:12:A9:FB:4F server=dhcp1
+add address=172.16.0.7 mac-address=38:1F:8D:2C:AF:93 server=dhcp1
+add address=172.16.0.8 mac-address=10:5A:17:EF:19:3E server=dhcp1
+add address=172.16.0.13 mac-address=7C:87:CE:8E:12:E2 server=dhcp1
+/ip dhcp-server network
+add address=172.16.0.0/24 dns-server=10.0.50.3,10.0.50.4 gateway=172.16.0.254
+/ip dns
+set cache-max-ttl=1d servers=10.0.50.3,10.0.50.4
+/ip firewall address-list
+add address=10.0.50.2-192.168.0.16 list=clients
+add address=192.168.0.18-192.168.0.254 list=clients
+add address=10.0.50.0/24 list="ip ranges"
+add address=192.168.0.0/24 list="ip ranges"
+add address=192.168.50.0/28 list="ip ranges"
+add address=172.17.0.0/24 list="ip ranges"
+add address=10.0.0.0/8 list=LAN
+add address=172.16.0.0/12 list=LAN
+add address=192.168.0.0/16 list=LAN
+add address=0.0.0.0/8 comment="RFC 1122 \"This host on this network\"" list=\
+    Bogons
+add address=10.0.0.0/8 comment="RFC 1918 (Private Use IP Space)" disabled=yes \
+    list=Bogons
+add address=100.64.0.0/10 comment="RFC 6598 (Shared Address Space)" list=\
+    Bogons
+add address=127.0.0.0/8 comment="RFC 1122 (Loopback)" list=Bogons
+add address=169.254.0.0/16 comment=\
+    "RFC 3927 (Dynamic Configuration of IPv4 Link-Local Addresses)" list=\
+    Bogons
+add address=172.16.0.0/12 comment="RFC 1918 (Private Use IP Space)" disabled=\
+    yes list=Bogons
+add address=192.0.0.0/24 comment="RFC 6890 (IETF Protocol Assingments)" list=\
+    Bogons
+add address=192.0.2.0/24 comment="RFC 5737 (Test-Net-1)" list=Bogons
+add address=192.168.0.0/16 comment="RFC 1918 (Private Use IP Space)" \
+    disabled=yes list=Bogons
+add address=198.18.0.0/15 comment="RFC 2544 (Benchmarking)" list=Bogons
+add address=198.51.100.0/24 comment="RFC 5737 (Test-Net-2)" list=Bogons
+add address=203.0.113.0/24 comment="RFC 5737 (Test-Net-3)" list=Bogons
+add address=224.0.0.0/4 comment="RFC 5771 (Multicast Addresses) - Will affect \
+    OSPF, RIP, PIM, VRRP, IS-IS, and others. Use with caution.)" disabled=yes \
+    list=Bogons
+add address=240.0.0.0/4 comment="RFC 1112 (Reserved)" list=Bogons
+add address=192.31.196.0/24 comment="RFC 7535 (AS112-v4)" list=Bogons
+add address=192.52.193.0/24 comment="RFC 7450 (AMT)" list=Bogons
+add address=192.88.99.0/24 comment=\
+    "RFC 7526 (Deprecated (6to4 Relay Anycast))" list=Bogons
+add address=192.175.48.0/24 comment=\
+    "RFC 7534 (Direct Delegation AS112 Service)" list=Bogons
+add address=255.255.255.255 comment="RFC 919 (Limited Broadcast)" disabled=\
+    yes list=Bogons
+add address=10.0.0.0/8 comment=ROUTING-GAME-BY-BNT list=LOCAL-IP
+add address=172.16.0.0/12 comment=ROUTING-GAME-BY-BNT list=LOCAL-IP
+add address=192.168.0.0/16 comment=ROUTING-GAME-BY-BNT list=LOCAL-IP
+add comment="domain-list Script: false" list=domain-auto
+add address=45.176.150.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=45.174.145.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.75.93.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.75.90.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=205.207.214.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.75.88.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=155.133.112.0/21 comment="domain-list Script: false" list=\
+    domain-auto
+add address=91.225.188.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=212.94.84.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=208.79.11.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=179.63.216.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=91.143.144.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.151.183.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=45.9.216.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.4.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=12.35.70.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.62.19.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.4.70.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.133.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.52.64.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.152.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=45.163.189.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.69.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.11.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.4.38.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.26.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.14.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.4.81.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.11.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.6.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.10.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.9.37.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.109.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.9.60.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.88.0/24 comment="domain-list Script: false" list=domain-auto
+add address=192.52.61.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.83.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.4.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.0.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.102.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.115.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.16.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.102.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.21.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.130.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.1.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.9.62.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.2.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.105.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.23.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.13.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.109.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.8.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.24.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.57.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.80.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.15.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.111.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.18.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.134.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.16.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=128.30.32.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.9.0.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.9.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.111.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.15.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.116.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.107.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.3.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.34.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.106.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.10.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.46.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.19.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.23.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.31.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.22.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.103.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.11.0/24 comment="domain-list Script: false" list=domain-auto
+add address=128.30.0.0/15 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.101.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.104.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.12.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.21.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.8.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.68.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.72.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.156.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.6.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.23.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.18.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=45.163.190.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.9.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.27.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=45.235.33.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.9.22.0/24 comment="domain-list Script: false" list=domain-auto
+add address=192.52.65.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.1.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.18.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.153.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.104.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.52.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.54.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.22.55.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.151.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.17.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.5.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.47.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.71.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.1.7.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.29.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.7.21.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.103.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.6.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.82.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.94.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.21.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.1.1.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.13.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.24.0/24 comment="domain-list Script: false" list=domain-auto
+add address=45.221.240.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.84.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.17.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.132.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.52.62.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.39.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.20.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.4.93.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.4.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.25.170.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.13.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.25.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.108.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.30.52.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.45.0/24 comment="domain-list Script: false" list=domain-auto
+add address=45.186.212.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.122.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.115.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.135.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.32.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.10.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.67.0/24 comment="domain-list Script: false" list=domain-auto
+add address=91.232.102.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.5.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.3.90.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.14.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=103.252.240.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.99.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.155.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.229.201.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.52.63.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.40.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.25.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.20.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.7.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.90.0/24 comment="domain-list Script: false" list=domain-auto
+add address=45.163.188.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.154.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.22.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=18.9.1.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.7.108.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.7.131.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.3.12.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.9.49.0/24 comment="domain-list Script: false" list=domain-auto
+add address=18.3.28.0/24 comment="domain-list Script: false" list=domain-auto
+add address=167.249.48.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.128.220.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=186.226.0.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.38.128.0/21 comment="domain-list Script: false" list=\
+    domain-auto
+add address=177.137.88.0/21 comment="domain-list Script: false" list=\
+    domain-auto
+add address=187.95.224.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=18.25.128.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=45.221.224.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=162.212.31.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=172.97.111.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=162.212.30.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=162.212.25.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.20.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.160.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.240.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.239.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=206.117.27.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.23.99.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.30.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.28.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.47.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.96.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.38.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.37.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.0.0/20 comment="domain-list Script: false" list=domain-auto
+add address=128.9.234.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.236.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.32.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.18.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.128.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.144.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=206.117.37.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.237.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.192.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.36.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.26.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.208.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.44.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.80.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.46.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.35.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=206.117.6.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.48.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.238.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.31.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.236.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.16.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=198.32.16.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.224.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.43.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.176.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.34.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.112.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=206.117.31.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.64.0/20 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.40.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.9.17.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=170.254.240.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=185.249.228.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=172.96.168.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=41.79.235.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.172.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.174.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.185.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.150.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.183.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.31.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.128.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.164.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.136.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.33.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.162.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.139.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.184.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.191.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.130.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=141.112.0.0/18 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.181.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.34.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.188.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=141.112.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=41.79.234.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=41.79.232.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.35.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.24.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.176.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.32.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.140.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.132.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.5.32.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.164.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.129.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.90.187.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=129.185.30.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.67.43.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.35.94.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=146.80.192.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=194.61.92.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=146.80.160.0/19 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.107.178.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.149.120.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.5.30.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=194.32.69.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.5.28.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=146.80.194.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=194.34.138.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=194.32.218.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=146.80.128.0/19 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.5.29.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=146.80.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.136.144.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=168.7.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=128.42.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=168.5.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=208.90.184.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=168.6.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=168.4.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=168.3.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=168.4.192.0/18 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.136.148.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.130.65.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=168.2.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=192.225.16.0/21 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.237.0.0/16 comment="domain-list Script: false" list=\
+    domain-auto
+add address=128.2.0.0/16 comment="domain-list Script: false" list=domain-auto
+add address=192.12.32.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=209.129.244.0/23 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.80.210.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.5.146.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=103.187.179.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=192.58.107.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+add address=147.72.252.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=204.194.28.0/22 comment="domain-list Script: false" list=\
+    domain-auto
+add address=205.173.160.0/21 comment="domain-list Script: false" list=\
+    domain-auto
+add address=45.169.5.0/24 comment="domain-list Script: false" list=\
+    domain-auto
+/ip firewall filter
+add action=drop chain=input comment="BLOCK DDOS" dst-port=53 in-interface=\
+    ether1 protocol=udp
+add action=drop chain=input comment="BLOCK DDOS" dst-port=53 in-interface=\
+    ether1 protocol=udp
+add action=jump chain=input comment="Jump to RFC Bogon Chain" jump-target=\
+    "RFC Bogon Chain"
+add action=jump chain=forward comment="Jump to RFC Bogon Chain" jump-target=\
+    "RFC Bogon Chain"
+add action=drop chain="RFC Bogon Chain" comment=\
+    "Drop all packets soured from Bogons" src-address-list=Bogons
+add action=drop chain="RFC Bogon Chain" comment=\
+    "Drop all packets destined to Bogons" dst-address-list=Bogons
+add action=return chain="RFC Bogon Chain" comment=\
+    "Return from RFC Bogon Chain"
+add action=drop chain=forward comment="drop invalid connections" \
+    connection-state=invalid protocol=tcp
+add action=accept chain=forward comment="Accept Cache" src-address=10.0.50.6
+add action=jump chain=input comment="Jump to RFC ICMP Protection Chain" \
+    jump-target="RFC ICMP Protection" protocol=icmp
+add action=jump chain=forward comment="Jump to RFC ICMP Protection Chain" \
+    jump-target="RFC ICMP Protection" protocol=icmp
+add action=add-dst-to-address-list address-list="Suspected SMURF Attacks" \
+    address-list-timeout=none-dynamic chain="RFC ICMP Protection" comment=\
+    "Detect Suspected SMURF Attacks" dst-address-type=broadcast log=yes \
+    log-prefix="FW-SMURF Attacks" protocol=icmp
+add action=drop chain="RFC ICMP Protection" comment=\
+    "Drop Suspected SMURF Attacks" dst-address-list="Suspected SMURF Attacks" \
+    protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Accept Echo Requests" \
+    icmp-options=8:0 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Accept Echo Replys" \
+    icmp-options=0:0 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=\
+    "Accept Destination Network Unreachable" icmp-options=3:0 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=\
+    "Accept Destination Host Unreachable" icmp-options=3:1 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=\
+    "Accept Destination Port Unreachable" icmp-options=3:3 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=\
+    "Fragmentation Messages" icmp-options=3:4 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Source Route Failed" \
+    icmp-options=3:5 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=\
+    "Network Admin Prohibited" icmp-options=3:9 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Host Admin Prohibited" \
+    icmp-options=3:10 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Router Advertisemnet" \
+    icmp-options=9:0 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Router Solicitation" \
+    icmp-options=9:10 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment="Time Exceeded" \
+    icmp-options=11:0-1 protocol=icmp
+add action=accept chain="RFC ICMP Protection" comment=Traceroute \
+    icmp-options=30:0 protocol=icmp
+add action=drop chain="RFC ICMP Protection" comment=\
+    "Drop ALL other ICMP Messages" log=yes log-prefix="FW-ICMP Protection" \
+    protocol=icmp
+add action=jump chain=input comment="Jump to RFC Port Scans" jump-target=\
+    "RFC Port Scans" protocol=tcp
+add action=jump chain=input comment="Jump to RFC Port Scans" jump-target=\
+    "RFC Port Scans" protocol=udp
+add action=jump chain=forward comment="Jump to RFC Port Scans" jump-target=\
+    "RFC Port Scans" protocol=tcp
+add action=jump chain=forward comment="Jump to RFC Port Scans" jump-target=\
+    "RFC Port Scans" protocol=udp
+add action=drop chain="RFC Port Scans" comment=\
+    "Drop anyone in the WAN Port Scanner List" src-address-list=\
+    "WAN Port Scanners"
+add action=drop chain="RFC Port Scans" comment=\
+    "Drop anyone in the WAN Port Scanner List" dst-address-list=\
+    "WAN Port Scanners"
+add action=drop chain="RFC Port Scans" comment=\
+    "Drop anyone in the LAN Port Scanner List" src-address-list=\
+    "LAN Port Scanners"
+add action=drop chain="RFC Port Scans" comment=\
+    "Drop anyone in the LAN Port Scanner List" dst-address-list=\
+    "LAN Port Scanners"
+add action=return chain="RFC Port Scans" comment="Return from RFC Port Scans"
+/ip firewall mangle
+add action=change-dscp chain=forward comment="Assign DSCP values for ping" \
+    new-dscp=0 packet-size=64 passthrough=no protocol=icmp
+add action=mark-packet chain=prerouting comment="PING QOS" dscp=0 \
+    new-packet-mark=ping_pkts_i packet-size=64 passthrough=no protocol=icmp
+add action=mark-packet chain=postrouting dscp=0 new-packet-mark=ping_pkts_o \
+    packet-size=64 passthrough=no protocol=icmp
+add action=change-dscp chain=forward comment="Assign DSCP values for dns" \
+    dst-port=53 new-dscp=48 passthrough=no protocol=udp
+add action=change-dscp chain=forward comment=\
+    "Assign DSCP values for registered ports" dst-port=1024-65535 new-dscp=32 \
+    passthrough=no protocol=tcp
+add action=change-dscp chain=forward dst-port=1024-65535 new-dscp=32 \
+    passthrough=no protocol=udp
+add action=mark-routing chain=prerouting comment="CACHE ROUTE" dst-port=80 \
+    in-interface=ether3 new-routing-mark=raptor_route passthrough=no \
+    protocol=tcp
+/ip firewall nat
+add action=masquerade chain=srcnat
+/ip firewall raw
+add action=jump chain=prerouting comment="Jump to Game Chain" jump-target=\
+    ports protocol=tcp
+add action=jump chain=prerouting comment="Jump to Game Chain" jump-target=\
+    ports protocol=udp
+add action=add-dst-to-address-list address-list=List-IP-Ports \
+    address-list-timeout=1h chain=ports comment="Port Corresponding IP/s" \
+    dst-address-list=!LOCAL-IP dst-port=0-65535 protocol=tcp
+add action=add-dst-to-address-list address-list=List-IP-Ports \
+    address-list-timeout=1h chain=ports dst-address-list=!LOCAL-IP dst-port=\
+    0-65535 protocol=udp
+add action=return chain=ports comment="Return From Game Chain"
+add action=jump chain=prerouting comment="Jump to Virus Chain" jump-target=\
+    Virus protocol=tcp
+add action=jump chain=prerouting comment="Jump to Virus Chain" jump-target=\
+    Virus protocol=udp
+add action=drop chain=Virus comment=Conficker dst-port=593 protocol=tcp
+add action=drop chain=Virus comment=Worm dst-port=1024-1030 protocol=tcp
+add action=drop chain=Virus comment="ndm requester" dst-port=1363 protocol=\
+    tcp
+add action=drop chain=Virus comment="ndm server" dst-port=1364 protocol=tcp
+add action=drop chain=Virus comment="screen cast" dst-port=1368 protocol=tcp
+add action=drop chain=Virus comment=hromgrafx dst-port=1373 protocol=tcp
+add action=drop chain=Virus comment="Drop MyDoom" dst-port=1080 protocol=tcp
+add action=drop chain=Virus comment=cichlid dst-port=1377 protocol=tcp
+add action=drop chain=Virus comment=Worm dst-port=1433-1434 protocol=tcp
+add action=drop chain=Virus comment="Drop Dumaru.Y" dst-port=2283 protocol=\
+    tcp
+add action=drop chain=Virus comment="Drop Beagle" dst-port=2535 protocol=tcp
+add action=drop chain=Virus comment="Drop Beagle.C-K" dst-port=2745 protocol=\
+    tcp
+add action=drop chain=Virus comment="Drop Backdoor OptixPro" dst-port=3410 \
+    protocol=tcp
+add action=drop chain=Virus comment="Drop Sasser" dst-port=5554 protocol=tcp
+add action=drop chain=Virus comment=Worm dst-port=4444 protocol=tcp
+add action=drop chain=Virus comment=Worm dst-port=4444 protocol=udp
+add action=drop chain=Virus comment="Drop Beagle.B" dst-port=8866 protocol=\
+    tcp
+add action=drop chain=Virus comment="Drop Dabber.A-B" dst-port=9898 protocol=\
+    tcp
+add action=drop chain=Virus comment="Drop SubSeven" dst-port=27374 protocol=\
+    tcp
+add action=drop chain=Virus comment="Drop PhatBot, Agobot, Gaobot" dst-port=\
+    65506 protocol=tcp
+add action=return chain=Virus comment="Return From Virus Chain"
+/ip route
+add check-gateway=ping disabled=no distance=1 dst-address=0.0.0.0/0 gateway=\
+    10.0.50.6 pref-src="" routing-table=raptor_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=no distance=2 dst-address=0.0.0.0/0 gateway=\
+    192.168.18.254 pref-src="" routing-table=raptor_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=no distance=1 dst-address=172.16.0.0/24 \
+    gateway=10.0.50.3 pref-src="" routing-table=dns_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=no distance=1 dst-address=172.16.0.0/24 \
+    gateway=10.0.50.4 pref-src="" routing-table=dns_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=no distance=1 dst-address=0.0.0.0/0 gateway=\
+    192.168.18.254 pref-src="" routing-table=main scope=30 \
+    suppress-hw-offload=no target-scope=10
+add check-gateway=ping disabled=yes distance=1 dst-address=0.0.0.0/0 gateway=\
+    10.0.50.3 pref-src="" routing-table=dns_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=yes distance=1 dst-address=0.0.0.0/0 gateway=\
+    10.0.50.4 pref-src="" routing-table=dns_route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=yes distance=1 dst-address=0.0.0.0/0 gateway=\
+    10.0.50.3 pref-src="" routing-table=ping-route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+add check-gateway=ping disabled=yes distance=1 dst-address=0.0.0.0/0 gateway=\
+    10.0.50.4 pref-src="" routing-table=ping-route scope=10 \
+    suppress-hw-offload=yes target-scope=10
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set ssh address=10.0.50.0/28,172.16.0.0/24
+set api address=10.0.50.0/28
+set winbox address=10.0.50.0/28,172.16.0.0/24
+set api-ssl address=10.0.50.0/28
+/system clock
+set time-zone-name=Asia/Manila
+/system identity
+set name=HOME-NETWORK
+/system ntp client
+set enabled=yes
+/system ntp client servers
+add address=pool.ntp.org
+add address=asia.pool.ntp.org
+/system package update
+set channel=long-term
+/system scheduler
+add interval=30m name="add list" on-event=add-list policy=\
+    ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon \
+    start-time=startup
+/system script
+add dont-require-permissions=no name=add-list owner=admin policy=\
+    ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="#\
+    \_ASN bazinda VPN scripti\r\
+    \n# 2018 Hazar\r\
+    \n\r\
+    \n:local VPNAddrList \"domain-auto\";\r\
+    \n\r\
+    \n:local ASNlist {\r\
+    \n\tAS13335=\"Cloudflare\";\r\
+    \n\tAS20940=\"Akamai\";\r\
+    \n\tAS16509=\"Amazon\";\r\
+    \n\tAS54113=\"Fastly\";\r\
+    \n                  AS22822=\"limelight\";\r\
+    \n                  AS54104=\"stackpath\";\r\
+    \n                  AS201229=\"keycdn\";\r\
+    \n                  AS8075=\"Azure CDN\";\r\
+    \n                  AS15169=\"Google cloud CDN\";\r\
+    \n                  AS60068=\"CDN77\";\r\
+    \n                  AS36408=\"CDNetworks\";\r\
+    \n}\r\
+    \n\r\
+    \n:log info \"VPN icin ASN update basliyor.\";\r\
+    \n/system logging disable 0;\r\
+    \n\r\
+    \n# Temizlik.\r\
+    \n/ip firewall address-list remove [find list=\$VPNAddrList];\r\
+    \n\r\
+    \n:foreach asn,com in=\$ASNlist do={\t\r\
+    \n\t/tool fetch url=(\"https://www.enjen.net/asn-blocklist/index.php\?asn=\
+    AS\" . \$asn . \"&type=iplist&api=1\") dst-path=(\"AS\" . \$asn . \".txt\"\
+    );\r\
+    \n\t:put (\"AS\" . \$asn . \".txt\");\r\
+    \n\t\r\
+    \n\tif ([:len [/file find name=(\"AS\" . \$asn . \".txt\")]] > 0) do={\r\
+    \n\t\t:local content [/file get [/file find name=(\"AS\" . \$asn . \".txt\
+    \")] contents] ;\r\
+    \n\t\t:local contentLen [ :len \$content ] ;\r\
+    \n\r\
+    \n\t\t:local lineEnd 0;\r\
+    \n\t\t:local line \"\";\r\
+    \n\t\t:local lastEnd 0;\r\
+    \n\t\t\r\
+    \n\t\t:do {\r\
+    \n\t\t\t:set lineEnd [:find \$content \"\\n\" \$lastEnd ];\r\
+    \n\t\t\t:set line [:pick \$content \$lastEnd \$lineEnd];\r\
+    \n\t\t\t:set lastEnd ( \$lineEnd + 1 );\r\
+    \n\t\t\t\r\
+    \n\t\t\t:if (\$line != \"\") do={\t\t\t\t\r\
+    \n\t\t\t\t/do {ip firewall address-list add list=\$VPNAddrList address=\$l\
+    ine comment=(\"domain-list Script: \" . \$com);} on-error={}\r\
+    \n\t\t\t}\r\
+    \n\t\t\t\r\
+    \n\t\t\t:put (\$com . \": \" . \$line);\r\
+    \n\t\t\t\r\
+    \n\t\t} while (\$lastEnd < \$contentLen);\r\
+    \n\t\t\r\
+    \n\t\t# Temizlik\r\
+    \n\t\t#/file remove (\"AS\" . \$asn . \".txt\");\r\
+    \n\t} else={\r\
+    \n\t\t:put (\"AS\" . \$asn . \" route detayi alinamadi.\");\r\
+    \n\t}\r\
+    \n}\r\
+    \n\r\
+    \n/system logging enable 0;\r\
+    \n:log info \"domain list updated\";"
+/tool sniffer
+set filter-cpu=3 filter-interface=ether1 streaming-enabled=yes \
+    streaming-server=10.0.50.7
